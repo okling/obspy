@@ -1,5 +1,6 @@
 master:
  - obspy.core:
+   * Added almost_equal method for Stream and Trace classes (see #2286).
    * Casting FDSN identifiers to strings upon setting in the stats dictionary
      (see #1997).
    * UTCDateTime objects will now always evaluate equal if their string

@@ -369,9 +369,9 @@ def _internal_write_single_scardec(buf, event, **kwargs):  # @UnusedVariable
     if not event.magnitudes:
         raise ValueError("Event must have at least one magnitude.")
 
-    # Attempt to get a moment magnitude
+    # Attempt to get a moment magnitude Mw (USGS catalog uses Mww)
     mw_candidates = \
-        [_i for _i in event.magnitudes if _i.magnitude_type == "Mw"]
+        [_i for _i in event.magnitudes if _i.magnitude_type == "Mw" or _i.magnitude_type == "Mww"]
 
     if not mw_candidates:
         warnings.warn("No moment wave magnitude found. Will be replaced by the"
@@ -380,7 +380,7 @@ def _internal_write_single_scardec(buf, event, **kwargs):  # @UnusedVariable
     else:
         mw_mag = mw_candidates[0]
 
-    # Now find the cmt origin. Try to find the first one that is CMT
+    # Now find the cmt origin. Try to find the first one that is CMT.
     candidates = [_i for _i in event.origins
                   if _i.origin_type == "centroid"]
     if candidates:
@@ -399,7 +399,7 @@ def _internal_write_single_scardec(buf, event, **kwargs):  # @UnusedVariable
         raise ValueError('Event moment tensor must contain a source time \
                           function to be written in SCARDEC format')
 
-    # Now attempt to retrieve the event name. Otherwise just get a random one.
+    # Now attempt to retrieve the event name. Otherwise, just get a random one.
     event_name = None
     if event.event_descriptions:
         candidates = [_i for _i in event.event_descriptions
@@ -412,15 +412,23 @@ def _internal_write_single_scardec(buf, event, **kwargs):  # @UnusedVariable
     template = (
         "{year:4d} {month:02d} {day:02d} {hour:02d} "
         "{minute:02d} {second:04.1f} "
-        "{latitude:9.4f} {longitude:9.4f}\n"
-        "{depth:5.1f} {scalmom:9.3E} {mw:5.3f}"
-        "{strike1:4d} {dip1:4d} {rake1:4d}"
-        "{strike2:4d} {dip2:4d} {rake2:4d}\n"
+        "{latitude:.3f} {longitude:.3f}\n"
+        "{depth:.0f}. {scalmom:.2E} {mw:.2f} "
+        "{strike1:d} {dip1:d} {rake1:d} "
+        "{strike2:d} {dip2:d} {rake2:d}\n"
     )
-
+    
+    # Retrieve focal mechanism.
     np1 = foc_mec.nodal_planes.nodal_plane_1
     np2 = foc_mec.nodal_planes.nodal_plane_2
-
+    
+    # Retrieve scalar moment. Otherwise, calculate scalar moment (in Nm) from moment magnitude.
+    if foc_mec.moment_tensor.scalar_moment is None:
+        scalmoment = 10**(1.5 * mw_mag.mag + 9.1) 
+    else:
+        scalmoment = foc_mec.moment_tensor.scalar_moment
+    
+    # Template to write in SCARDEC format
     template = template.format(
         year=cmt_origin.time.year,
         month=cmt_origin.time.month,
@@ -432,7 +440,7 @@ def _internal_write_single_scardec(buf, event, **kwargs):  # @UnusedVariable
         latitude=cmt_origin.latitude,
         longitude=cmt_origin.longitude,
         depth=cmt_origin.depth / 1000.0,
-        scalmom=foc_mec.moment_tensor.scalar_moment,
+        scalmom=scalmoment,
         mw=mw_mag.mag,
         strike1=int(np1.strike),
         dip1=int(np1.dip),

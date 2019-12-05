@@ -29,7 +29,7 @@ import numpy as np
 import pkg_resources
 import requests
 from future.utils import native_str
-from pkg_resources import iter_entry_points
+from pkg_resources import get_entry_info, iter_entry_points
 
 from obspy.core.util.misc import to_int_or_zero, buffered_load_entry_point
 
@@ -37,14 +37,14 @@ from obspy.core.util.misc import to_int_or_zero, buffered_load_entry_point
 # defining ObsPy modules currently used by runtests and the path function
 DEFAULT_MODULES = ['clients.filesystem', 'core', 'db', 'geodetics', 'imaging',
                    'io.ah', 'io.arclink', 'io.ascii', 'io.cmtsolution',
-                   'io.cnv', 'io.css', 'io.focmec', 'io.iaspei', 'io.win',
+                   'io.cnv', 'io.css', 'io.dmx', 'io.focmec', 'io.iaspei',
                    'io.gcf', 'io.gse2', 'io.json', 'io.kinemetrics', 'io.kml',
                    'io.mseed', 'io.ndk', 'io.nied', 'io.nlloc', 'io.nordic',
                    'io.pdas', 'io.pde', 'io.quakeml', 'io.reftek', 'io.rg16',
                    'io.sac', 'io.scardec', 'io.seg2', 'io.segy', 'io.seisan',
                    'io.sh', 'io.shapefile', 'io.seiscomp', 'io.stationtxt',
-                   'io.stationxml', 'io.wav', 'io.xseed', 'io.y', 'io.zmap',
-                   'realtime', 'scripts', 'signal', 'taup']
+                   'io.stationxml', 'io.wav', 'io.win', 'io.xseed', 'io.y',
+                   'io.zmap', 'realtime', 'scripts', 'signal', 'taup']
 NETWORK_MODULES = ['clients.arclink', 'clients.earthworm', 'clients.fdsn',
                    'clients.iris', 'clients.neic', 'clients.nrl',
                    'clients.seedlink', 'clients.seishub', 'clients.syngine']
@@ -55,7 +55,7 @@ WAVEFORM_PREFERRED_ORDER = ['MSEED', 'SAC', 'GSE2', 'SEISAN', 'SACXY', 'GSE1',
                             'Q', 'SH_ASC', 'SLIST', 'TSPAIR', 'Y', 'PICKLE',
                             'SEGY', 'SU', 'SEG2', 'WAV', 'WIN', 'CSS',
                             'NNSA_KB_CORE', 'AH', 'PDAS', 'KINEMETRICS_EVT',
-                            'GCF']
+                            'GCF', 'DMX']
 EVENT_PREFERRED_ORDER = ['QUAKEML', 'NLLOC_HYP']
 INVENTORY_PREFERRED_ORDER = ['STATIONXML', 'SEED', 'RESP']
 # waveform plugins accepting a byteorder keyword
@@ -100,6 +100,7 @@ class NamedTemporaryFile(io.BufferedIOBase):
     >>> os.path.exists(tf.name)
     False
     """
+
     def __init__(self, dir=None, suffix='.tmp', prefix='obspy-'):
         fd, self.name = tempfile.mkstemp(dir=dir, prefix=prefix, suffix=suffix)
         self._fileobj = os.fdopen(fd, 'w+b', 0)  # 0 -> do not buffer
@@ -381,7 +382,13 @@ def get_proj_version(raw_string=False):
     # proj4 is a c library, prproj wraps this.  proj_version is an attribute
     # of the Proj class that is only set when the projection is made. Make
     # a dummy projection and get the version
-    version_string = str(Proj(proj='utm', zone=10, ellps='WGS84').proj_version)
+    _proj = Proj(proj='utm', zone=10, ellps='WGS84')
+    if hasattr(_proj, 'proj_version'):
+        version_string = str(getattr(_proj, 'proj_version'))
+    else:
+        from pyproj import proj_version_str
+        version_string = proj_version_str
+
     if raw_string:
         return version_string
     version_list = [to_int_or_zero(no) for no in version_string.split(".")]
@@ -433,7 +440,7 @@ def _read_from_plugin(plugin_type, filename, format=None, **kwargs):
             # check format
             is_format = is_format(filename)
             if position is not None:
-                filename.seek(0, 0)
+                filename.seek(position, 0)
             if is_format:
                 break
         else:
@@ -519,8 +526,8 @@ def make_format_plugin_table(group="waveform", method="read", numspaces=4,
     for name, ep in eps.items():
         module_short = ":mod:`%s`" % ".".join(ep.module_name.split(".")[:3])
         ep_list = [ep.dist.key, "obspy.plugin.%s.%s" % (group, name), method]
-        func = buffered_load_entry_point(*ep_list)
-        func_str = ':func:`%s`' % ".".join((ep.module_name, func.__name__))
+        entry_info = str(get_entry_info(*ep_list))
+        func_str = ':func:`%s`' % entry_info.split(' = ')[1].replace(':', '.')
         mod_list.append((name, module_short, func_str))
 
     mod_list = sorted(mod_list)
@@ -545,13 +552,27 @@ def make_format_plugin_table(group="waveform", method="read", numspaces=4,
     return ret
 
 
+def _add_format_plugin_table(func, group, method, numspaces=4):
+    """
+    A function to populate the docstring of func with its plugin table.
+    """
+    if '%s' in func.__doc__:
+        if PY2 and method == "write":
+            func.im_func.func_doc = func.__doc__ % make_format_plugin_table(
+                group, method, numspaces=numspaces)
+        else:
+            func.__doc__ = func.__doc__ % make_format_plugin_table(
+                group, method, numspaces=numspaces)
+
+
 class ComparingObject(object):
     """
     Simple base class that implements == and != based on self.__dict__
     """
+
     def __eq__(self, other):
-        return (isinstance(other, self.__class__)
-                and self.__dict__ == other.__dict__)
+        return (isinstance(other, self.__class__) and
+                self.__dict__ == other.__dict__)
 
     def __ne__(self, other):
         return not self.__eq__(other)

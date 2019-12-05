@@ -367,7 +367,7 @@ class Client(object):
                 if token_file:
                     msg = ("Read EIDA token from file '{}' but it does not "
                            "seem to contain a valid PGP message.").format(
-                                token_file)
+                               token_file)
                 else:
                     msg = ("EIDA token does not seem to be a valid PGP "
                            "message. If you passed a filename, make sure the "
@@ -1737,6 +1737,10 @@ def raise_on_error(code, data):
         msg = ("The request URI is too large. Please contact the ObsPy "
                "developers.", server_info)
         raise NotImplementedError(msg)
+    elif code == 429:
+        msg = ("Sent too many requests in a given amount of time ('rate "
+               "limiting'). Wait before making a new request.", server_info)
+        raise FDSNException(msg, server_info)
     elif code == 500:
         raise FDSNException("Service responds: Internal server error",
                             server_info)
